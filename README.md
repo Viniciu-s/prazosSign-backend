@@ -14,6 +14,12 @@ API backend do PrazosSign desenvolvida com Spring Boot, Spring Security, JWT e P
 - listagem de grupos do usuário autenticado
 - atualização de grupos do usuário autenticado
 - exclusão de grupos do usuário autenticado
+- criação de documentos
+- edição de documentos em rascunho
+- salvamento de documentos como rascunho
+- movimentação de documentos entre Home e Grupos
+- listagem de documentos do usuário autenticado
+- filtro de documentos por status
 - persistência com PostgreSQL
 - ambiente local com Docker Compose
 
@@ -47,6 +53,16 @@ API backend do PrazosSign desenvolvida com Spring Boot, Spring Security, JWT e P
 - `POST /groups`
 - `PUT /groups/{id}`
 - `DELETE /groups/{id}`
+
+### Documentos
+
+- `GET /documents`
+- `POST /documents`
+- `GET /documents/{id}`
+- `PUT /documents/{id}`
+- `DELETE /documents/{id}`
+- `POST /documents/{id}/send`
+- `POST /documents/{id}/move`
 
 ## Configuração local
 
@@ -105,6 +121,7 @@ Authorization: Bearer SEU_TOKEN_JWT
 
 Atualmente, o endpoint de perfil exige autenticação. O logout também depende de um token válido enviado no header `Authorization`.
 Os endpoints de grupos também exigem autenticação e sempre operam apenas sobre os grupos do usuário autenticado.
+Os endpoints de documentos também exigem autenticação e sempre operam apenas sobre os documentos do usuário autenticado.
 
 ## Modelo de usuário
 
@@ -130,6 +147,22 @@ groups
 - user_id
 - name
 - created_at
+```
+
+## Modelo de documentos
+
+Estrutura persistida para documentos:
+
+```text
+documents
+- id
+- user_id
+- group_id nullable
+- title
+- content
+- status
+- created_at
+- updated_at
 ```
 
 ## Endpoints
@@ -459,6 +492,278 @@ Sem corpo de resposta.
 
 - `401 Unauthorized` quando não houver autenticação válida
 - `404 Not Found` quando o grupo não for encontrado para o usuário autenticado
+
+### GET /documents
+
+Retorna os documentos do usuário autenticado ordenados por data de atualização decrescente.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Query params opcionais
+
+- `status`: filtra documentos por status, aceitando `RASCUNHO`, `AGUARDANDO_ASSINATURA`, `PARCIALMENTE_ASSINADO`, `ASSINADO`, `VALIDADO` ou `CANCELADO`
+
+#### Response 200
+
+```json
+[
+  {
+    "id": 2,
+    "groupId": 1,
+    "title": "Contrato Comercial",
+    "content": "Conteúdo do documento",
+    "status": "AGUARDANDO_ASSINATURA",
+    "createdAt": "2026-04-18T10:00:00Z",
+    "updatedAt": "2026-04-18T12:30:00Z"
+  },
+  {
+    "id": 1,
+    "groupId": null,
+    "title": "Proposta Inicial",
+    "content": "Conteúdo em rascunho",
+    "status": "RASCUNHO",
+    "createdAt": "2026-04-17T09:00:00Z",
+    "updatedAt": "2026-04-18T08:00:00Z"
+  }
+]
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` quando o filtro de status for inválido
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o usuário autenticado não for encontrado
+
+### GET /documents/{id}
+
+Retorna um documento pertencente ao usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Response 200
+
+```json
+{
+  "id": 1,
+  "groupId": null,
+  "title": "Proposta Inicial",
+  "content": "Conteúdo em rascunho",
+  "status": "RASCUNHO",
+  "createdAt": "2026-04-18T10:00:00Z",
+  "updatedAt": "2026-04-18T10:00:00Z"
+}
+```
+
+#### Possíveis erros
+
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o documento não for encontrado para o usuário autenticado
+
+### POST /documents
+
+Cria um novo documento para o usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Request
+
+```json
+{
+  "title": "Proposta Inicial",
+  "content": "Conteúdo em rascunho"
+}
+```
+
+#### Regras
+
+- `title` é obrigatório
+- `title` deve ter no máximo 255 caracteres
+- espaços nas extremidades do título são removidos antes de salvar
+- `content` é obrigatório
+- todo documento novo é criado com status `RASCUNHO`
+
+#### Response 201
+
+```json
+{
+  "id": 1,
+  "groupId": null,
+  "title": "Proposta Inicial",
+  "content": "Conteúdo em rascunho",
+  "status": "RASCUNHO",
+  "createdAt": "2026-04-18T10:00:00Z",
+  "updatedAt": "2026-04-18T10:00:00Z"
+}
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` para payload inválido
+- `400 Bad Request` quando o título informado for vazio após normalização
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o usuário autenticado não for encontrado
+
+### PUT /documents/{id}
+
+Atualiza um documento em rascunho pertencente ao usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Request
+
+```json
+{
+  "title": "Proposta Atualizada",
+  "content": "Conteúdo revisado"
+}
+```
+
+#### Regras
+
+- `title` é obrigatório
+- `title` deve ter no máximo 255 caracteres
+- `content` é obrigatório
+- apenas documentos com status `RASCUNHO` podem ser editados
+- o documento deve pertencer ao usuário autenticado
+
+#### Response 200
+
+```json
+{
+  "id": 1,
+  "groupId": null,
+  "title": "Proposta Atualizada",
+  "content": "Conteúdo revisado",
+  "status": "RASCUNHO",
+  "createdAt": "2026-04-18T10:00:00Z",
+  "updatedAt": "2026-04-18T11:00:00Z"
+}
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` para payload inválido
+- `400 Bad Request` quando o título informado for vazio após normalização
+- `400 Bad Request` quando o documento já tiver sido enviado
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o documento não for encontrado para o usuário autenticado
+
+### DELETE /documents/{id}
+
+Remove um documento pertencente ao usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Response 204
+
+Sem corpo de resposta.
+
+#### Possíveis erros
+
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o documento não for encontrado para o usuário autenticado
+
+### POST /documents/{id}/send
+
+Marca um documento como enviado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Response 200
+
+```json
+{
+  "id": 1,
+  "groupId": null,
+  "title": "Proposta Inicial",
+  "content": "Conteúdo em rascunho",
+  "status": "AGUARDANDO_ASSINATURA",
+  "createdAt": "2026-04-18T10:00:00Z",
+  "updatedAt": "2026-04-18T12:00:00Z"
+}
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` quando o documento já tiver sido enviado
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o documento não for encontrado para o usuário autenticado
+
+### POST /documents/{id}/move
+
+Move um documento para um grupo do usuário autenticado ou de volta para Home.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Request para mover para um grupo
+
+```json
+{
+  "groupId": 1
+}
+```
+
+#### Request para mover para Home
+
+```json
+{
+  "groupId": null
+}
+```
+
+#### Regras
+
+- `groupId` pode ser `null` para remover o vínculo com grupo
+- quando informado, o grupo deve pertencer ao usuário autenticado
+- o documento deve pertencer ao usuário autenticado
+
+#### Response 200
+
+```json
+{
+  "id": 1,
+  "groupId": 1,
+  "title": "Proposta Inicial",
+  "content": "Conteúdo em rascunho",
+  "status": "RASCUNHO",
+  "createdAt": "2026-04-18T10:00:00Z",
+  "updatedAt": "2026-04-18T12:15:00Z"
+}
+```
+
+#### Possíveis erros
+
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o documento não for encontrado para o usuário autenticado
+- `404 Not Found` quando o grupo informado não for encontrado para o usuário autenticado
 
 ## Formato de erro
 
