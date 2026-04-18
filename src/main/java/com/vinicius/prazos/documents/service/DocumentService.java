@@ -10,7 +10,15 @@ import com.vinicius.prazos.documents.domain.enums.DocumentStatus;
 import com.vinicius.prazos.documents.repository.DocumentRepository;
 import com.vinicius.prazos.groups.domain.entity.Group;
 import com.vinicius.prazos.groups.repository.GroupRepository;
+import com.vinicius.prazos.signatures.domain.entity.Signer;
+import com.vinicius.prazos.signatures.domain.enums.SignerStatus;
+import com.vinicius.prazos.signatures.domain.enums.SignatureLogEvent;
+import com.vinicius.prazos.signatures.repository.SignerRepository;
+import com.vinicius.prazos.signatures.repository.SignatureLogRepository;
+import com.vinicius.prazos.signatures.service.SignatureLogService;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Locale;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -23,15 +31,24 @@ public class DocumentService {
 	private final DocumentRepository documentRepository;
 	private final GroupRepository groupRepository;
 	private final CustomUserDetailsService userDetailsService;
+	private final SignerRepository signerRepository;
+	private final SignatureLogRepository signatureLogRepository;
+	private final SignatureLogService signatureLogService;
 
 	public DocumentService(
 		DocumentRepository documentRepository,
 		GroupRepository groupRepository,
-		CustomUserDetailsService userDetailsService
+		CustomUserDetailsService userDetailsService,
+		SignerRepository signerRepository,
+		SignatureLogRepository signatureLogRepository,
+		SignatureLogService signatureLogService
 	) {
 		this.documentRepository = documentRepository;
 		this.groupRepository = groupRepository;
 		this.userDetailsService = userDetailsService;
+		this.signerRepository = signerRepository;
+		this.signatureLogRepository = signatureLogRepository;
+		this.signatureLogService = signatureLogService;
 	}
 
 	@Transactional(readOnly = true)
@@ -86,6 +103,8 @@ public class DocumentService {
 	public void deleteDocument(Long id, String email) {
 		User user = userDetailsService.loadDomainUserByEmail(email);
 		Document document = loadOwnedDocument(id, user.getId());
+		signatureLogRepository.deleteByDocumentId(document.getId());
+		signerRepository.deleteByDocumentId(document.getId());
 		documentRepository.delete(document);
 	}
 
@@ -98,8 +117,17 @@ public class DocumentService {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Documento já foi enviado");
 		}
 
+		List<Signer> signers = signerRepository.findAllByDocumentId(document.getId());
+		if (signers.isEmpty()) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Documento precisa ter ao menos um signatário antes do envio");
+		}
+
+		prepareSignersForSending(signers);
 		document.setStatus(DocumentStatus.AGUARDANDO_ASSINATURA);
-		return toResponse(documentRepository.save(document));
+		Document savedDocument = documentRepository.save(document);
+		signerRepository.saveAll(signers);
+		signatureLogService.log(savedDocument, null, SignatureLogEvent.DOCUMENTO_ENVIADO, "Documento enviado para assinatura", null, null);
+		return toResponse(savedDocument);
 	}
 
 	@Transactional
@@ -135,6 +163,33 @@ public class DocumentService {
 			return DocumentStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
 		} catch (IllegalArgumentException exception) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Status do documento inválido");
+		}
+	}
+
+	private void prepareSignersForSending(List<Signer> signers) {
+		boolean hasSigningOrder = signers.stream().anyMatch(signer -> signer.getSigningOrder() != null);
+		if (!hasSigningOrder) {
+			signers.stream()
+				.filter(signer -> signer.getSignedAt() == null)
+				.forEach(signer -> signer.setStatus(SignerStatus.PENDENTE));
+			return;
+		}
+
+		Optional<Integer> firstOrder = signers.stream()
+			.map(Signer::getSigningOrder)
+			.filter(Objects::nonNull)
+			.min(Integer::compareTo);
+
+		for (Signer signer : signers) {
+			if (signer.getSignedAt() != null || signer.getSigningOrder() == null) {
+				continue;
+			}
+
+			if (firstOrder.isPresent() && firstOrder.get().equals(signer.getSigningOrder())) {
+				signer.setStatus(SignerStatus.PENDENTE);
+			} else {
+				signer.setStatus(SignerStatus.AGUARDANDO_ORDEM);
+			}
 		}
 	}
 

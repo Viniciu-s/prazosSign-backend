@@ -16,6 +16,12 @@ import com.vinicius.prazos.documents.domain.enums.DocumentStatus;
 import com.vinicius.prazos.documents.repository.DocumentRepository;
 import com.vinicius.prazos.groups.domain.entity.Group;
 import com.vinicius.prazos.groups.repository.GroupRepository;
+import com.vinicius.prazos.signatures.domain.entity.Signer;
+import com.vinicius.prazos.signatures.domain.enums.SignerStatus;
+import com.vinicius.prazos.signatures.domain.enums.SignatureLogEvent;
+import com.vinicius.prazos.signatures.repository.SignerRepository;
+import com.vinicius.prazos.signatures.repository.SignatureLogRepository;
+import com.vinicius.prazos.signatures.service.SignatureLogService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +46,15 @@ class DocumentServiceTest {
 
 	@Mock
 	private CustomUserDetailsService userDetailsService;
+
+	@Mock
+	private SignerRepository signerRepository;
+
+	@Mock
+	private SignatureLogRepository signatureLogRepository;
+
+	@Mock
+	private SignatureLogService signatureLogService;
 
 	@InjectMocks
 	private DocumentService documentService;
@@ -194,6 +209,8 @@ class DocumentServiceTest {
 		documentService.deleteDocument(1L, user.getEmail());
 
 		// Assert
+		verify(signatureLogRepository).deleteByDocumentId(1L);
+		verify(signerRepository).deleteByDocumentId(1L);
 		verify(documentRepository).delete(document);
 	}
 
@@ -201,9 +218,11 @@ class DocumentServiceTest {
 	void shouldSendDraftDocument() {
 		// Arrange
 		Document document = buildDocument(1L, "Contrato", "Conteúdo", DocumentStatus.RASCUNHO, Instant.parse("2026-04-18T10:00:00Z"));
+		Signer signer = buildSigner(10L, 1, SignerStatus.PENDENTE);
 
 		when(userDetailsService.loadDomainUserByEmail(user.getEmail())).thenReturn(user);
 		when(documentRepository.findByIdAndUserId(1L, user.getId())).thenReturn(Optional.of(document));
+		when(signerRepository.findAllByDocumentId(1L)).thenReturn(List.of(signer));
 		when(documentRepository.save(document)).thenReturn(document);
 
 		// Act
@@ -211,8 +230,11 @@ class DocumentServiceTest {
 
 		// Assert
 		assertThat(document.getStatus()).isEqualTo(DocumentStatus.AGUARDANDO_ASSINATURA);
+		assertThat(signer.getStatus()).isEqualTo(SignerStatus.PENDENTE);
 		assertThat(response.status()).isEqualTo(DocumentStatus.AGUARDANDO_ASSINATURA);
 		verify(documentRepository).save(document);
+		verify(signerRepository).saveAll(List.of(signer));
+		verify(signatureLogService).log(document, null, SignatureLogEvent.DOCUMENTO_ENVIADO, "Documento enviado para assinatura", null, null);
 	}
 
 	@Test
@@ -228,6 +250,23 @@ class DocumentServiceTest {
 			.isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
 				assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 				assertThat(exception.getReason()).isEqualTo("Documento já foi enviado");
+			});
+	}
+
+	@Test
+	void shouldRejectSendingDocumentWithoutSigners() {
+		// Arrange
+		Document document = buildDocument(1L, "Contrato", "Conteúdo", DocumentStatus.RASCUNHO, Instant.parse("2026-04-18T10:00:00Z"));
+
+		when(userDetailsService.loadDomainUserByEmail(user.getEmail())).thenReturn(user);
+		when(documentRepository.findByIdAndUserId(1L, user.getId())).thenReturn(Optional.of(document));
+		when(signerRepository.findAllByDocumentId(1L)).thenReturn(List.of());
+
+		// Act / Assert
+		assertThatThrownBy(() -> documentService.sendDocument(1L, user.getEmail()))
+			.isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+				assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+				assertThat(exception.getReason()).isEqualTo("Documento precisa ter ao menos um signatário antes do envio");
 			});
 	}
 
@@ -301,5 +340,13 @@ class DocumentServiceTest {
 		document.setCreatedAt(updatedAt.minusSeconds(3600));
 		document.setUpdatedAt(updatedAt);
 		return document;
+	}
+
+	private Signer buildSigner(Long id, Integer signingOrder, SignerStatus status) {
+		Signer signer = new Signer();
+		signer.setId(id);
+		signer.setSigningOrder(signingOrder);
+		signer.setStatus(status);
+		return signer;
 	}
 }

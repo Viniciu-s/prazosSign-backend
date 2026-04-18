@@ -17,6 +17,11 @@ API backend do PrazosSign desenvolvida com Spring Boot, Spring Security, JWT e P
 - criação de documentos
 - edição de documentos em rascunho
 - salvamento de documentos como rascunho
+- adição de signatários em documentos
+- geração de links públicos de assinatura
+- captura de assinatura sem cadastro
+- validação de assinatura por hash
+- registro de logs do fluxo de assinatura
 - movimentação de documentos entre Home e Grupos
 - listagem de documentos do usuário autenticado
 - filtro de documentos por status
@@ -63,6 +68,13 @@ API backend do PrazosSign desenvolvida com Spring Boot, Spring Security, JWT e P
 - `DELETE /documents/{id}`
 - `POST /documents/{id}/send`
 - `POST /documents/{id}/move`
+
+### Assinaturas
+
+- `POST /documents/{id}/signers`
+- `GET /documents/{id}/signers`
+- `POST /sign/public/{token}/view`
+- `POST /sign/public/{token}/submit`
 
 ## Configuração local
 
@@ -122,6 +134,8 @@ Authorization: Bearer SEU_TOKEN_JWT
 Atualmente, o endpoint de perfil exige autenticação. O logout também depende de um token válido enviado no header `Authorization`.
 Os endpoints de grupos também exigem autenticação e sempre operam apenas sobre os grupos do usuário autenticado.
 Os endpoints de documentos também exigem autenticação e sempre operam apenas sobre os documentos do usuário autenticado.
+Os endpoints autenticados de signatários também exigem autenticação e operam apenas sobre documentos do usuário autenticado.
+Os endpoints públicos de assinatura por token não exigem autenticação.
 
 ## Modelo de usuário
 
@@ -164,6 +178,61 @@ documents
 - created_at
 - updated_at
 ```
+
+## Modelo de signatários
+
+Estrutura persistida para signatários:
+
+```text
+signers
+- id
+- document_id
+- name
+- email
+- signing_order nullable
+- status
+- token
+- token_expires_at
+- viewed_at nullable
+- signed_at nullable
+- signature_value nullable
+- signature_hash nullable
+- created_at
+- updated_at
+```
+
+Status de signatário utilizados pela API:
+
+- `PENDENTE`
+- `AGUARDANDO_ORDEM`
+- `VISUALIZADO`
+- `ASSINADO`
+- `EXPIRADO`
+
+## Modelo de logs de assinatura
+
+Estrutura persistida para eventos do fluxo de assinatura:
+
+```text
+signature_logs
+- id
+- document_id
+- signer_id nullable
+- event
+- description
+- ip_address nullable
+- user_agent nullable
+- created_at
+```
+
+Eventos atualmente registrados:
+
+- `SIGNATARIO_ADICIONADO`
+- `DOCUMENTO_ENVIADO`
+- `LINK_VISUALIZADO`
+- `ASSINATURA_ENVIADA`
+- `ASSINATURA_VALIDADA`
+- `LINK_EXPIRADO`
 
 ## Endpoints
 
@@ -710,6 +779,7 @@ Authorization: Bearer jwt-token
 #### Possíveis erros
 
 - `400 Bad Request` quando o documento já tiver sido enviado
+- `400 Bad Request` quando o documento não tiver ao menos um signatário
 - `401 Unauthorized` quando não houver autenticação válida
 - `404 Not Found` quando o documento não for encontrado para o usuário autenticado
 
@@ -764,6 +834,200 @@ Authorization: Bearer jwt-token
 - `401 Unauthorized` quando não houver autenticação válida
 - `404 Not Found` quando o documento não for encontrado para o usuário autenticado
 - `404 Not Found` quando o grupo informado não for encontrado para o usuário autenticado
+
+### POST /documents/{id}/signers
+
+Adiciona um signatário a um documento em rascunho do usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Request
+
+```json
+{
+  "name": "Maria Silva",
+  "email": "maria@example.com",
+  "signingOrder": 1
+}
+```
+
+#### Regras
+
+- `name` é obrigatório
+- `name` deve ter no máximo 255 caracteres
+- `email` é obrigatório e deve ser válido
+- `email` deve ter no máximo 255 caracteres
+- espaços nas extremidades de `name` e `email` são removidos antes de salvar
+- o e-mail é normalizado para minúsculas antes de salvar
+- só é possível adicionar signatários em documentos com status `RASCUNHO`
+- não pode existir outro signatário com o mesmo e-mail no mesmo documento
+- `signingOrder` é opcional, mas quando usado deve ser maior que zero
+- se um documento usar ordem de assinatura, todos os seus signatários devem seguir o mesmo padrão
+- o token público é gerado automaticamente com expiração de 7 dias
+
+#### Response 201
+
+```json
+{
+  "id": 1,
+  "documentId": 10,
+  "name": "Maria Silva",
+  "email": "maria@example.com",
+  "signingOrder": 1,
+  "status": "PENDENTE",
+  "token": "a6d9b2c7-8c61-4c56-80e2-4b2a0138a2d4",
+  "publicLink": "/sign/public/a6d9b2c7-8c61-4c56-80e2-4b2a0138a2d4",
+  "tokenExpiresAt": "2026-04-25T12:00:00Z",
+  "viewedAt": null,
+  "signedAt": null,
+  "signatureValid": null,
+  "createdAt": "2026-04-18T12:00:00Z"
+}
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` para payload inválido
+- `400 Bad Request` quando o documento não estiver em rascunho
+- `400 Bad Request` quando já existir um signatário com o mesmo e-mail no documento
+- `400 Bad Request` quando a configuração de ordem de assinatura do documento for inconsistente
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o documento não for encontrado para o usuário autenticado
+
+### GET /documents/{id}/signers
+
+Lista os signatários de um documento do usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Response 200
+
+```json
+[
+  {
+    "id": 1,
+    "documentId": 10,
+    "name": "Maria Silva",
+    "email": "maria@example.com",
+    "signingOrder": 1,
+    "status": "PENDENTE",
+    "token": "a6d9b2c7-8c61-4c56-80e2-4b2a0138a2d4",
+    "publicLink": "/sign/public/a6d9b2c7-8c61-4c56-80e2-4b2a0138a2d4",
+    "tokenExpiresAt": "2026-04-25T12:00:00Z",
+    "viewedAt": null,
+    "signedAt": null,
+    "signatureValid": null,
+    "createdAt": "2026-04-18T12:00:00Z"
+  }
+]
+```
+
+#### Possíveis erros
+
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o documento não for encontrado para o usuário autenticado
+
+### POST /sign/public/{token}/view
+
+Registra a visualização de um link público de assinatura e retorna os dados necessários para exibir o documento ao signatário.
+
+#### Request
+
+Sem corpo de requisição.
+
+#### Regras
+
+- o token precisa existir
+- o token não pode estar expirado
+- o documento não pode estar cancelado
+- o documento precisa já ter sido enviado para assinatura
+- quando o fluxo usa ordem de assinatura, o campo `canSign` informa se já é a vez do signatário
+- a visualização gera log com IP e `User-Agent` quando disponíveis
+
+#### Response 200
+
+```json
+{
+  "signerId": 1,
+  "documentId": 10,
+  "documentTitle": "Contrato Comercial",
+  "documentContent": "Conteúdo do documento",
+  "signerName": "Maria Silva",
+  "signerEmail": "maria@example.com",
+  "signingOrder": 1,
+  "signerStatus": "VISUALIZADO",
+  "documentStatus": "AGUARDANDO_ASSINATURA",
+  "viewedAt": "2026-04-18T12:05:00Z",
+  "signedAt": null,
+  "tokenExpiresAt": "2026-04-25T12:00:00Z",
+  "signatureValid": null,
+  "canSign": true
+}
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` quando o documento ainda estiver em rascunho
+- `400 Bad Request` quando o documento estiver cancelado
+- `404 Not Found` quando o token for inválido
+- `410 Gone` quando o link de assinatura estiver expirado
+
+### POST /sign/public/{token}/submit
+
+Captura a assinatura do signatário a partir de um link público e atualiza o status do documento.
+
+#### Request
+
+```json
+{
+  "name": "Maria Silva",
+  "signature": "assinatura-base64-ou-texto"
+}
+```
+
+#### Regras
+
+- `name` é obrigatório
+- `name` deve ter no máximo 255 caracteres
+- `signature` é obrigatória
+- o token precisa existir e não pode estar expirado
+- o documento não pode estar cancelado
+- o documento precisa já ter sido enviado para assinatura
+- o link não pode ter sido usado anteriormente para assinar
+- quando existe ordem de assinatura, apenas o próximo signatário pode concluir a assinatura
+- ao assinar, a API gera hash de validação, registra logs e recalcula o status do documento
+- quando todos os signatários concluem e todas as assinaturas validam, o documento passa para `VALIDADO`
+
+#### Response 200
+
+```json
+{
+  "signerId": 1,
+  "documentId": 10,
+  "signerStatus": "ASSINADO",
+  "documentStatus": "VALIDADO",
+  "signedAt": "2026-04-18T12:10:00Z",
+  "signatureValid": true
+}
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` para payload inválido
+- `400 Bad Request` quando o documento ainda estiver em rascunho
+- `400 Bad Request` quando o documento estiver cancelado
+- `400 Bad Request` quando o link já tiver sido utilizado para assinar
+- `404 Not Found` quando o token for inválido
+- `409 Conflict` quando ainda não for a vez do signatário assinar
+- `410 Gone` quando o link de assinatura estiver expirado
 
 ## Formato de erro
 
