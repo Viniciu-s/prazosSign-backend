@@ -10,6 +10,10 @@ API backend do PrazosSign desenvolvida com Spring Boot, Spring Security, JWT e P
 - recuperação de senha
 - redefinição de senha por token
 - consulta de perfil autenticado
+- criação de grupos
+- listagem de grupos do usuário autenticado
+- atualização de grupos do usuário autenticado
+- exclusão de grupos do usuário autenticado
 - persistência com PostgreSQL
 - ambiente local com Docker Compose
 
@@ -36,6 +40,13 @@ API backend do PrazosSign desenvolvida com Spring Boot, Spring Security, JWT e P
 ### Perfil
 
 - `GET /profile`
+
+### Grupos
+
+- `GET /groups`
+- `POST /groups`
+- `PUT /groups/{id}`
+- `DELETE /groups/{id}`
 
 ## Configuração local
 
@@ -93,6 +104,7 @@ Authorization: Bearer SEU_TOKEN_JWT
 ```
 
 Atualmente, o endpoint de perfil exige autenticação. O logout também depende de um token válido enviado no header `Authorization`.
+Os endpoints de grupos também exigem autenticação e sempre operam apenas sobre os grupos do usuário autenticado.
 
 ## Modelo de usuário
 
@@ -106,6 +118,18 @@ users
 - password_hash
 - created_at
 - updated_at
+```
+
+## Modelo de grupos
+
+Estrutura persistida para grupos:
+
+```text
+groups
+- id
+- user_id
+- name
+- created_at
 ```
 
 ## Endpoints
@@ -301,6 +325,141 @@ Authorization: Bearer jwt-token
 - `401 Unauthorized` quando não houver autenticação válida
 - `404 Not Found` quando o usuário autenticado não for encontrado
 
+### GET /groups
+
+Retorna os grupos do usuário autenticado ordenados por data de criação decrescente.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Response 200
+
+```json
+[
+  {
+    "id": 2,
+    "name": "Financeiro",
+    "createdAt": "2026-04-18T12:30:00Z"
+  },
+  {
+    "id": 1,
+    "name": "Contratos",
+    "createdAt": "2026-04-17T09:00:00Z"
+  }
+]
+```
+
+#### Possíveis erros
+
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o usuário autenticado não for encontrado
+
+### POST /groups
+
+Cria um novo grupo para o usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Request
+
+```json
+{
+  "name": "Contratos"
+}
+```
+
+#### Regras
+
+- `name` é obrigatório
+- `name` deve ter no máximo 255 caracteres
+- espaços nas extremidades são removidos antes de salvar
+- após a normalização, o nome não pode ficar vazio
+
+#### Response 201
+
+```json
+{
+  "id": 1,
+  "name": "Contratos",
+  "createdAt": "2026-04-18T12:00:00Z"
+}
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` para payload inválido
+- `400 Bad Request` quando o nome informado for vazio após normalização
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o usuário autenticado não for encontrado
+
+### PUT /groups/{id}
+
+Atualiza um grupo pertencente ao usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Request
+
+```json
+{
+  "name": "Jurídico"
+}
+```
+
+#### Regras
+
+- `name` é obrigatório
+- `name` deve ter no máximo 255 caracteres
+- espaços nas extremidades são removidos antes de salvar
+- o grupo deve pertencer ao usuário autenticado
+
+#### Response 200
+
+```json
+{
+  "id": 1,
+  "name": "Jurídico",
+  "createdAt": "2026-04-18T12:00:00Z"
+}
+```
+
+#### Possíveis erros
+
+- `400 Bad Request` para payload inválido
+- `400 Bad Request` quando o nome informado for vazio após normalização
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o grupo não for encontrado para o usuário autenticado
+
+### DELETE /groups/{id}
+
+Remove um grupo pertencente ao usuário autenticado.
+
+#### Headers
+
+```http
+Authorization: Bearer jwt-token
+```
+
+#### Response 204
+
+Sem corpo de resposta.
+
+#### Possíveis erros
+
+- `401 Unauthorized` quando não houver autenticação válida
+- `404 Not Found` quando o grupo não for encontrado para o usuário autenticado
+
 ## Formato de erro
 
 Erros de validação e regras de negócio seguem um formato padronizado.
@@ -341,20 +500,3 @@ O `docker-compose.yml` atual sobe apenas o PostgreSQL local. Exemplo de uso:
 docker compose up -d
 docker compose down
 ```
-
-## Estado atual do projeto
-
-Entregue até aqui:
-
-- módulo de autenticação funcional
-- testes de integração cobrindo os fluxos principais
-- configuração local via `.env`
-- banco PostgreSQL local via Docker Compose
-
-## Próximos passos possíveis
-
-- envio real de e-mail para recuperação de senha
-- refresh token
-- documentação OpenAPI/Swagger
-- versionamento de banco com migrations
-- pipeline de deploy para produção
