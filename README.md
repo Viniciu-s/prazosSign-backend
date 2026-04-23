@@ -444,12 +444,22 @@ Authorization: Bearer jwt-token
   {
     "id": 2,
     "name": "Financeiro",
-    "createdAt": "2026-04-18T12:30:00Z"
+    "createdAt": "2026-04-18T12:30:00Z",
+    "documents": [
+      {
+        "id": 3,
+        "title": "Contrato Comercial",
+        "status": "AGUARDANDO_ASSINATURA",
+        "createdAt": "2026-04-18T10:00:00Z",
+        "updatedAt": "2026-04-18T12:30:00Z"
+      }
+    ]
   },
   {
     "id": 1,
     "name": "Contratos",
-    "createdAt": "2026-04-17T09:00:00Z"
+    "createdAt": "2026-04-17T09:00:00Z",
+    "documents": []
   }
 ]
 ```

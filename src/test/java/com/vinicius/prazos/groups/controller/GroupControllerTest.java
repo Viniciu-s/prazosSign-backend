@@ -6,7 +6,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.vinicius.prazos.groups.domain.dto.GroupRequest;
+import com.vinicius.prazos.groups.domain.dto.GroupDocumentResponse;
 import com.vinicius.prazos.groups.domain.dto.GroupResponse;
+import com.vinicius.prazos.documents.domain.enums.DocumentStatus;
 import com.vinicius.prazos.groups.service.GroupService;
 import java.time.Instant;
 import java.util.List;
@@ -42,8 +44,13 @@ class GroupControllerTest {
 	void shouldListGroupsFromAuthenticatedUser() {
 		// Arrange
 		List<GroupResponse> expectedGroups = List.of(
-			new GroupResponse(1L, "Grupo 1", Instant.parse("2026-04-18T09:00:00Z")),
-			new GroupResponse(2L, "Grupo 2", Instant.parse("2026-04-17T09:00:00Z"))
+			new GroupResponse(
+				1L,
+				"Grupo 1",
+				Instant.parse("2026-04-18T09:00:00Z"),
+				List.of(new GroupDocumentResponse(10L, "Contrato A", DocumentStatus.RASCUNHO, Instant.parse("2026-04-18T08:00:00Z"), Instant.parse("2026-04-18T09:00:00Z")))
+			),
+			new GroupResponse(2L, "Grupo 2", Instant.parse("2026-04-17T09:00:00Z"), List.of())
 		);
 
 		when(groupService.listGroups(userDetails.getUsername())).thenReturn(expectedGroups);
@@ -60,7 +67,7 @@ class GroupControllerTest {
 	void shouldCreateGroupForAuthenticatedUser() {
 		// Arrange
 		GroupRequest request = new GroupRequest("Novo Grupo");
-		GroupResponse expectedResponse = new GroupResponse(1L, "Novo Grupo", Instant.parse("2026-04-18T09:00:00Z"));
+		GroupResponse expectedResponse = new GroupResponse(1L, "Novo Grupo", Instant.parse("2026-04-18T09:00:00Z"), List.of());
 
 		when(groupService.createGroup(userDetails.getUsername(), request)).thenReturn(expectedResponse);
 
@@ -76,7 +83,7 @@ class GroupControllerTest {
 	void shouldUpdateGroupForAuthenticatedUser() {
 		// Arrange
 		GroupRequest request = new GroupRequest("Atualizado");
-		GroupResponse expectedResponse = new GroupResponse(1L, "Atualizado", Instant.parse("2026-04-18T09:00:00Z"));
+		GroupResponse expectedResponse = new GroupResponse(1L, "Atualizado", Instant.parse("2026-04-18T09:00:00Z"), List.of());
 
 		when(groupService.updateGroup(1L, userDetails.getUsername(), request)).thenReturn(expectedResponse);
 

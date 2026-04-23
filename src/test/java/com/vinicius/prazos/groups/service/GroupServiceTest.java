@@ -8,6 +8,9 @@ import static org.mockito.Mockito.when;
 
 import com.vinicius.prazos.auth.domain.entity.User;
 import com.vinicius.prazos.auth.security.CustomUserDetailsService;
+import com.vinicius.prazos.documents.domain.entity.Document;
+import com.vinicius.prazos.documents.domain.enums.DocumentStatus;
+import com.vinicius.prazos.documents.repository.DocumentRepository;
 import com.vinicius.prazos.groups.domain.dto.GroupRequest;
 import com.vinicius.prazos.groups.domain.dto.GroupResponse;
 import com.vinicius.prazos.groups.domain.entity.Group;
@@ -32,6 +35,9 @@ class GroupServiceTest {
 	private GroupRepository groupRepository;
 
 	@Mock
+	private DocumentRepository documentRepository;
+
+	@Mock
 	private CustomUserDetailsService userDetailsService;
 
 	@InjectMocks
@@ -52,9 +58,13 @@ class GroupServiceTest {
 		// Arrange
 		Group firstGroup = buildGroup(1L, "Grupo 1", Instant.parse("2026-04-17T10:15:30Z"));
 		Group secondGroup = buildGroup(2L, "Grupo 2", Instant.parse("2026-04-16T09:00:00Z"));
+		Document firstDocument = buildDocument(10L, firstGroup, "Contrato A", DocumentStatus.AGUARDANDO_ASSINATURA, Instant.parse("2026-04-18T10:00:00Z"), Instant.parse("2026-04-18T11:00:00Z"));
+		Document secondDocument = buildDocument(11L, firstGroup, "Contrato B", DocumentStatus.RASCUNHO, Instant.parse("2026-04-17T10:00:00Z"), Instant.parse("2026-04-18T09:00:00Z"));
 
 		when(userDetailsService.loadDomainUserByEmail(user.getEmail())).thenReturn(user);
 		when(groupRepository.findAllByUserIdOrderByCreatedAtDesc(user.getId())).thenReturn(List.of(firstGroup, secondGroup));
+		when(documentRepository.findAllByUserIdAndGroupIdInOrderByUpdatedAtDesc(user.getId(), List.of(1L, 2L)))
+			.thenReturn(List.of(firstDocument, secondDocument));
 
 		// Act
 		List<GroupResponse> response = groupService.listGroups(user.getEmail());
@@ -66,6 +76,10 @@ class GroupServiceTest {
 		assertThat(response)
 			.extracting(GroupResponse::id)
 			.containsExactly(1L, 2L);
+		assertThat(response.getFirst().documents())
+			.extracting(document -> document.title())
+			.containsExactly("Contrato A", "Contrato B");
+		assertThat(response.get(1).documents()).isEmpty();
 	}
 
 	@Test
@@ -91,6 +105,7 @@ class GroupServiceTest {
 		assertThat(savedGroupCaptor.getValue().getName()).isEqualTo("Novo Grupo");
 		assertThat(response.id()).isEqualTo(10L);
 		assertThat(response.name()).isEqualTo("Novo Grupo");
+		assertThat(response.documents()).isEmpty();
 	}
 
 	@Test
@@ -124,6 +139,7 @@ class GroupServiceTest {
 		// Assert
 		assertThat(existingGroup.getName()).isEqualTo("Atualizado");
 		assertThat(response.name()).isEqualTo("Atualizado");
+		assertThat(response.documents()).isEmpty();
 		verify(groupRepository).save(existingGroup);
 	}
 
@@ -177,5 +193,23 @@ class GroupServiceTest {
 		group.setName(name);
 		group.setCreatedAt(createdAt);
 		return group;
+	}
+
+	private Document buildDocument(
+		Long id,
+		Group group,
+		String title,
+		DocumentStatus status,
+		Instant createdAt,
+		Instant updatedAt
+	) {
+		Document document = new Document();
+		document.setId(id);
+		document.setGroup(group);
+		document.setTitle(title);
+		document.setStatus(status);
+		document.setCreatedAt(createdAt);
+		document.setUpdatedAt(updatedAt);
+		return document;
 	}
 }

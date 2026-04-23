@@ -12,5 +12,7 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
 	List<Document> findAllByUserIdAndStatusOrderByUpdatedAtDesc(Long userId, DocumentStatus status);
 
+	List<Document> findAllByUserIdAndGroupIdInOrderByUpdatedAtDesc(Long userId, List<Long> groupIds);
+
 	Optional<Document> findByIdAndUserId(Long id, Long userId);
 }
